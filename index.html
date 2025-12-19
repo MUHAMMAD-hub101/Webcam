@@ -4,43 +4,24 @@
     <title>Webcam to Server</title>
 </head>
 <body>
-    <h2>Webcam Stream Test</h2>
+    <video id="webcam" autoplay playsinline style="width: 640px; height: 480px;"></video>
+    <br>
     
-    <div id="permissionBox" style="padding: 20px; border: 2px solid #ccc; margin: 20px;">
-        <h3>Step 1: Allow Camera Permission</h3>
-        <button id="requestPermissionBtn">Allow Camera Access</button>
-        <div id="permissionStatus" style="margin-top: 10px;"></div>
-    </div>
+    <button id="startBtn">Start Streaming</button>
+    <button id="stopBtn" disabled>Stop Streaming</button>
     
-    <div id="cameraBox" style="display: none;">
-        <!-- Video element to show webcam -->
-        <video id="webcam" autoplay playsinline style="width: 640px; height: 480px; border: 1px solid black;"></video>
-        <br>
-        
-        <!-- Controls -->
-        <button id="startBtn">Start Streaming</button>
-        <button id="stopBtn" disabled>Stop Streaming</button>
-        
-        <!-- Status -->
-        <div id="status">Ready</div>
-        <div>FPS: <span id="fps">0</span></div>
-    </div>
+    <div id="status">Ready</div>
+    <div>FPS: <span id="fps">0</span></div>
 
     <script>
-        const SERVER_URL = 'http://192.168.0.101:3000';
+        const SERVER_URL = 'http://localhost:3000';  // ✅ Correct URL
         
-        // Elements
-        const permissionBox = document.getElementById('permissionBox');
-        const cameraBox = document.getElementById('cameraBox');
-        const requestPermissionBtn = document.getElementById('requestPermissionBtn');
-        const permissionStatus = document.getElementById('permissionStatus');
         const video = document.getElementById('webcam');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const statusEl = document.getElementById('status');
         const fpsEl = document.getElementById('fps');
         
-        // Variables
         let isStreaming = false;
         let stream = null;
         let canvas = null;
@@ -49,100 +30,29 @@
         let lastFpsTime = Date.now();
         let animationFrameId = null;
         
-        // Check if running on localhost or HTTPS
-        function checkEnvironment() {
-            const isLocalhost = window.location.hostname === 'localhost' || 
-                              window.location.hostname === '127.0.0.1';
-            const isHttps = window.location.protocol === 'https:';
-            
-            if (!isLocalhost && !isHttps) {
-                permissionStatus.innerHTML = `
-                    <div style="color: red; background: #ffe6e6; padding: 10px; border-radius: 5px;">
-                        ❌ <strong>Camera requires HTTPS or localhost!</strong><br>
-                        Please run on:<br>
-                        1. <code>http://localhost:8000</code> (recommended)<br>
-                        2. Or <code>https://your-domain.com</code>
-                    </div>
-                `;
-                return false;
-            }
-            return true;
-        }
-        
-        // Request camera permission
-        async function requestCameraPermission() {
-            if (!checkEnvironment()) return;
-            
-            permissionStatus.textContent = 'Requesting camera access...';
-            
+        // Initialize webcam
+        async function initWebcam() {
             try {
-                // First check existing permissions
-                const permission = await navigator.permissions.query({ name: 'camera' });
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: 640,
+                        height: 480
+                    },
+                    audio: false
+                });
                 
-                if (permission.state === 'granted') {
-                    initWebcam();
-                } else if (permission.state === 'prompt') {
-                    // Request permission
-                    stream = await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            facingMode: 'user',
-                            width: { ideal: 640 },
-                            height: { ideal: 480 }
-                        },
-                        audio: false
-                    });
-                    initWebcam();
-                } else {
-                    permissionStatus.innerHTML = `
-                        <div style="color: red;">
-                            ❌ Camera permission denied. Please:<br>
-                            1. Click the camera icon in address bar<br>
-                            2. Allow camera access<br>
-                            3. Refresh page
-                        </div>
-                    `;
-                }
+                video.srcObject = stream;
+                statusEl.textContent = 'Webcam ready';
+                
+                canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                ctx = canvas.getContext('2d');
                 
             } catch (error) {
-                console.error('Camera error:', error);
-                permissionStatus.innerHTML = `
-                    <div style="color: red;">
-                        ❌ Error: ${error.name}<br>
-                        ${error.message}
-                    </div>
-                `;
-                
-                // Show help based on error
-                if (error.name === 'NotAllowedError') {
-                    permissionStatus.innerHTML += `
-                        <div style="margin-top: 10px; padding: 10px; background: #fff3cd;">
-                            <strong>Fix:</strong><br>
-                            1. Check browser settings<br>
-                            2. Clear site permissions<br>
-                            3. Try different browser (Chrome/Firefox)
-                        </div>
-                    `;
-                }
+                statusEl.textContent = 'Error: ' + error.message;
             }
-        }
-        
-        // Initialize webcam after permission granted
-        function initWebcam() {
-            permissionBox.style.display = 'none';
-            cameraBox.style.display = 'block';
-            permissionStatus.textContent = '✅ Camera access granted';
-            
-            video.srcObject = stream;
-            statusEl.textContent = 'Webcam ready';
-            
-            // Create canvas for capturing frames
-            canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 480;
-            ctx = canvas.getContext('2d');
-            
-            // Auto-start streaming
-            startStreaming();
         }
         
         // Capture and send frame
@@ -156,14 +66,28 @@
             const imageData = canvas.toDataURL('image/jpeg', 0.5);
             const base64Data = imageData.replace(/^data:image\/jpeg;base64,/, '');
             
-            // Send to server (fire and forget)
+            // ✅ SEND TO SERVER CORRECTLY
             fetch(`${SERVER_URL}/frame`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: base64Data })
-            }).catch(() => {}); // Ignore errors
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    image: base64Data,
+                    timestamp: Date.now()
+                })
+            })
+            .then(response => {
+                if (response.ok) {
+                    console.log('Frame sent successfully');
+                }
+            })
+            .catch(error => {
+                console.log('Send error:', error);
+            });
             
-            // Calculate FPS
+            // FPS counter
             frameCount++;
             const now = Date.now();
             if (now - lastFpsTime >= 1000) {
@@ -172,7 +96,7 @@
                 lastFpsTime = now;
             }
             
-            // Request next frame immediately
+            // Next frame
             if (isStreaming) {
                 animationFrameId = requestAnimationFrame(captureAndSendFrame);
             }
@@ -190,7 +114,6 @@
             startBtn.disabled = true;
             stopBtn.disabled = false;
             
-            // Start capture loop
             captureAndSendFrame();
         }
         
@@ -207,21 +130,11 @@
         }
         
         // Event listeners
-        requestPermissionBtn.addEventListener('click', requestCameraPermission);
         startBtn.addEventListener('click', startStreaming);
         stopBtn.addEventListener('click', stopStreaming);
         
-        // Cleanup
-        window.addEventListener('beforeunload', () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-        });
-        
-        // Check on load
-        window.addEventListener('load', () => {
-            checkEnvironment();
-        });
+        // Initialize
+        window.addEventListener('load', initWebcam);
     </script>
 </body>
 </html>
